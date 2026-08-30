@@ -4,7 +4,7 @@
  * Loads the legacy app config (DB connection, session, shared helpers)
  * and registers a PSR-0 style autoloader for the app/ namespace.
  */
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/config.php';
 
 spl_autoload_register(function ($class) {
     $prefix = 'App\\';

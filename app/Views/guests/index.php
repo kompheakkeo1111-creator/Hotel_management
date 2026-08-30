@@ -111,7 +111,7 @@
 const guestData = <?php echo json_encode($guests); ?>;
 
 function viewGuest(id) {
-    fetch('get_guest.php?id=' + id)
+    fetch('index.php?r=guests/detail&id=' + id)
         .then(r => r.text())
         .then(html => {
             document.getElementById('view-body').innerHTML = html;

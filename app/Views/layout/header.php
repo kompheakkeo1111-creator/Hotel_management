@@ -22,7 +22,7 @@ function navItem($key, $href, $icon, $label) {
 <title><?php echo htmlspecialchars($pageTitle); ?> - Hotel Management</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
-<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="app/Public/assets/css/style.css">
 </head>
 <body>
 <div class="container-fluid"><div class="row">
@@ -47,7 +47,7 @@ function navItem($key, $href, $icon, $label) {
         <?php echo navItem('maintenance', 'index.php?r=maintenance/index', 'bi-wrench', 'Maintenance'); ?>
         <?php echo navItem('reports', 'index.php?r=reports/index', 'bi-file-text', 'Reports'); ?>
         <?php echo navItem('settings', 'index.php?r=settings/index', 'bi-gear', 'Settings'); ?>
-        <?php echo navItem('', 'logout.php', 'bi-box-arrow-right', 'Logout'); ?>
+        <?php echo navItem('', 'index.php?r=auth/logout', 'bi-box-arrow-right', 'Logout'); ?>
     </nav>
 </div>
 <div class="col-md-10 main">

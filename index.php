@@ -1,10 +1,10 @@
 <?php
 /**
- * Front controller for the MVC routes.
- * Existing legacy pages (dashboard.php, rooms.php, ...) continue to work
- * directly; this entry point serves only the migrated MVC modules.
+ * Sole front controller for the MVC app.
+ * All application code lives under app/; this entry point boots the app
+ * and dispatches the requested route.
  *
- * To view a migrated module use: index.php?r=module/action
+ * Route format: index.php?r=controller/action  e.g. index.php?r=billing/index
  */
 require __DIR__ . '/app/bootstrap.php';
 

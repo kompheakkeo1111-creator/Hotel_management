@@ -1,38 +1,14 @@
 <?php
-require_once 'config.php';
-requireLogin();
-
-$db = getDB();
-$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-if (!$id) { die('Invalid payment ID'); }
-
-$stmt = $db->prepare("
-    SELECT p.*,
-           g.full_name, g.phone, g.email,
-           rm.room_number, rm.floor,
-           rt.type_name AS room_type,
-           ci.check_in_time,
-           r.reservation_number, r.check_out_date
-    FROM payments p
-    JOIN check_ins ci ON p.check_in_id = ci.id
-    JOIN guests g ON ci.guest_id = g.id
-    JOIN rooms rm ON ci.room_id = rm.id
-    LEFT JOIN room_types rt ON rm.room_type_id = rt.id
-    LEFT JOIN reservations r ON p.reservation_id = r.id
-    WHERE p.id = ?");
-$stmt->execute([$id]);
-$payment = $stmt->fetch(PDO::FETCH_ASSOC);
-if (!$payment) { die('Payment record not found'); }
-
-$settings = getSystemSettings();
-$tax_rate = (float)($settings['tax_rate'] ?? 0);
-$chars = $db->prepare("SELECT * FROM extra_charges WHERE check_in_id=?");
-$chars->execute([$payment['check_in_id']]);
-$extra_charges = $chars->fetchAll(PDO::FETCH_ASSOC);
 $extra_total = 0;
-foreach ($extra_charges as $c) $extra_total += (float)$c['amount'];
-
-$bill = computeCheckinBill($db, $payment['check_in_id'], $tax_rate);
+$chars = null;
+if (!empty($payment['check_in_id'])) {
+    $db = getDB();
+    $s = $db->prepare("SELECT * FROM extra_charges WHERE check_in_id=?");
+    $s->execute([$payment['check_in_id']]);
+    $chars = $s->fetchAll(PDO::FETCH_ASSOC);
+    $extra_total = 0;
+    foreach ($chars as $c) $extra_total += (float)$c['amount'];
+}
 $nights = $bill['nights'] ?? 0;
 $room_charge = $bill['room_charge'] ?? 0;
 $tax_amount = $bill['tax'] ?? 0;
@@ -57,8 +33,8 @@ body{background:#f5f7fb} .receipt{max-width:820px;margin:30px auto;background:#f
 <body>
 <div class="receipt">
     <div class="receipt-header">
-        <div style="font-size:42px">🏨</div>
-        <h2><?php echo htmlspecialchars($settings['hotel_name'] ?? 'My Hotel'); ?></h2>
+        <div style="font-size:42px">&#127976;</div>
+        <h2><?php echo htmlspecialchars($settings['hotel_name'] ?? 'GANZ hotel'); ?></h2>
         <div>PAYMENT RECEIPT</div>
         <small class="text-muted">Invoice: <strong><?php echo htmlspecialchars($payment['invoice_number']); ?></strong></small>
         <div><small class="text-muted"><?php echo date('Y-m-d H:i:s', strtotime($payment['payment_date'])); ?></small></div>
@@ -74,10 +50,10 @@ body{background:#f5f7fb} .receipt{max-width:820px;margin:30px auto;background:#f
     <table class="table mt-4">
         <thead><tr><th>Description</th><th class="text-end">Amount</th></tr></thead>
         <tbody>
-            <tr><td>Room Charges — <?php echo htmlspecialchars($payment['room_number']); ?> (<?php echo $nights; ?> night<?php echo $nights == 1 ? '' : 's'; ?> &times; <?php echo formatCurrency($bill['rate'] ?? 0); ?>)</td><td class="text-end"><?php echo formatCurrency($room_charge); ?></td></tr>
-            <?php foreach ($extra_charges as $charge): ?>
+            <tr><td>Room Charges &mdash; <?php echo htmlspecialchars($payment['room_number']); ?> (<?php echo $nights; ?> night<?php echo $nights == 1 ? '' : 's'; ?> &times; <?php echo formatCurrency($bill['rate'] ?? 0); ?>)</td><td class="text-end"><?php echo formatCurrency($room_charge); ?></td></tr>
+            <?php if ($chars): foreach ($chars as $charge): ?>
                 <tr><td><?php echo htmlspecialchars($charge['charge_type'] . ($charge['description'] ? ': ' . $charge['description'] : '')); ?></td><td class="text-end"><?php echo formatCurrency($charge['amount']); ?></td></tr>
-            <?php endforeach; ?>
+            <?php endforeach; endif; ?>
             <?php if ($tax_amount > 0): ?>
                 <tr><td>Tax (<?php echo $tax_rate; ?>%)</td><td class="text-end"><?php echo formatCurrency($tax_amount); ?></td></tr>
             <?php endif; ?>
@@ -86,7 +62,8 @@ body{background:#f5f7fb} .receipt{max-width:820px;margin:30px auto;background:#f
     <div class="total-box"><span>TOTAL</span><span><?php echo formatCurrency($payment['amount']); ?></span></div>
     <div class="text-center mt-3"><span class="badge bg-success fs-6">PAID</span></div>
     <div class="text-center text-muted mt-4">Thank you for staying with us!</div>
-    <div class="no-print"><button onclick="window.print()" class="btn btn-success btn-lg"><i class="bi bi-printer"></i> Print</button> <a href="billing.php" class="btn btn-secondary btn-lg">Back</a></div>
+    <div class="no-print"><button onclick="window.print()" class="btn btn-success btn-lg"><i class="bi bi-printer"></i> Print</button> <a href="index.php?r=billing/index" class="btn btn-secondary btn-lg">Back</a></div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

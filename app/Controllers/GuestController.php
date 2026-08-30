@@ -32,6 +32,36 @@ class GuestController extends Controller
         ], 'guests', 'Guests');
     }
 
+    /**
+     * AJAX: return the guest detail + stay history fragment (supports ?id=N).
+     */
+    public function detailAction()
+    {
+        $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+        if (!$id) {
+            echo '<div class="alert alert-danger">Invalid guest ID</div>';
+            return;
+        }
+
+        $guest = $this->guest->find($id);
+        if (!$guest) {
+            echo '<div class="alert alert-danger">Guest not found</div>';
+            return;
+        }
+
+        $db = getDB();
+        $stmt = $db->prepare("
+            SELECT r.reservation_number, r.check_in_date, r.check_out_date, r.status, rm.room_number,
+                   (SELECT COUNT(*) FROM payments p WHERE p.reservation_id = r.id) payments
+            FROM reservations r
+            LEFT JOIN rooms rm ON r.room_id = rm.id
+            WHERE r.guest_id = ? ORDER BY r.created_at DESC");
+        $stmt->execute([$id]);
+        $history = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $this->view('guests/detail', compact('guest', 'history'), 'guests');
+    }
+
     private function handlePost()
     {
         $action = $_POST['action'] ?? '';

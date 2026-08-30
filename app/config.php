@@ -37,7 +37,7 @@ function hasRole($roles) {
 // Redirect if not logged in
 function requireLogin() {
     if (!isLoggedIn()) {
-        header('Location: login.php');
+        header('Location: index.php?r=auth/login');
         exit();
     }
 }
@@ -46,7 +46,7 @@ function requireLogin() {
 function requireRole($roles) {
     requireLogin();
     if (!hasRole($roles)) {
-        header('Location: dashboard.php');
+        header('Location: index.php?r=dashboard/index');
         exit();
     }
 }

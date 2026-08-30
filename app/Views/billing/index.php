@@ -39,7 +39,7 @@
                 <td><span class="badge bg-<?php echo $p['payment_method']=='Cash'?'success':($p['payment_method']=='Credit/Debit Card'?'primary':'warning'); ?>"><?php echo htmlspecialchars($p['payment_method']); ?></span></td>
                 <td><?php echo date('Y-m-d H:i', strtotime($p['payment_date'])); ?></td>
                 <td>
-                    <button onclick="window.open('print_receipt.php?id=<?php echo (int)$p['id']; ?>','_blank')" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer"></i> Print</button>
+                    <button onclick="window.open('index.php?r=billing/print&id=<?php echo (int)$p['id']; ?>','_blank')" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer"></i> Print</button>
                     <button onclick="viewReceipt(<?php echo (int)$p['id']; ?>)" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#receiptModal"><i class="bi bi-eye"></i> View</button>
                 </td>
             </tr>
@@ -77,7 +77,7 @@
 function viewReceipt(id) {
     new bootstrap.Modal(document.getElementById('receiptModal')).show();
     document.getElementById('receiptContent').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2">Loading...</p></div>';
-    fetch('get_receipt.php?id=' + id)
+    fetch('index.php?r=billing/receipt&id=' + id)
         .then(r => r.text())
         .then(html => { document.getElementById('receiptContent').innerHTML = html; })
         .catch(() => { document.getElementById('receiptContent').innerHTML = '<div class="alert alert-danger">Error loading receipt.</div>'; });
