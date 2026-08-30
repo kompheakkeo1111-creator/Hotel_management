@@ -7,7 +7,6 @@ define('DB_NAME', 'hotel_management');
 
 // Application configuration
 define('APP_NAME', 'Hotel Management System');
-define('APP_URL', 'http://localhost/hotel_management/');
 
 // Session configuration
 session_start();
@@ -57,27 +56,42 @@ function generateReservationNumber() {
     return 'RES-' . date('Ymd') . '-' . rand(1000, 9999);
 }
 
-// Generate invoice number
-function generateInvoiceNumber() {
-    return 'INV-' . date('Ymd') . '-' . rand(1000, 9999);
-}
-
-// Get current user
-function getCurrentUser() {
-    if (isset($_SESSION['user_id'])) {
-        $db = getDB();
-        $stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
-        $stmt->execute([$_SESSION['user_id']]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    }
-    return null;
-}
-
 // Format currency
 function formatCurrency($amount) {
     $settings = getSystemSettings();
     $currency = $settings['currency'] ?? 'USD';
     return $currency . ' ' . number_format($amount, 2);
+}
+
+// Compute stay billing breakdown for a check-in (nights x rate + extras + tax)
+function computeCheckinBill($db, $check_in_id, $tax_rate = 0) {
+    $stmt = $db->prepare("SELECT c.check_in_time, c.expected_check_out, rm.price_per_night
+                          FROM check_ins c JOIN rooms rm ON c.room_id=rm.id WHERE c.id=?");
+    $stmt->execute([$check_in_id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return null;
+
+    $checkin = date('Y-m-d', strtotime($row['check_in_time']));
+    $checkout = $row['expected_check_out'];
+    if (strtotime($checkout) < strtotime($checkin)) $checkout = $checkin;
+    $nights = max(1, (int)((strtotime(date('Y-m-d', strtotime($checkout))) - strtotime(date('Y-m-d', strtotime($checkin)))) / 86400));
+
+    $room_charge = round($nights * (float)$row['price_per_night'], 2);
+
+    $stmt = $db->prepare("SELECT COALESCE(SUM(amount),0) FROM extra_charges WHERE check_in_id=?");
+    $stmt->execute([$check_in_id]);
+    $extra = (float)$stmt->fetchColumn();
+
+    $subtotal = $room_charge + $extra;
+    $tax = round($subtotal * $tax_rate / 100, 2);
+    return [
+        'nights' => $nights,
+        'rate' => (float)$row['price_per_night'],
+        'room_charge' => $room_charge,
+        'extra' => $extra,
+        'tax' => $tax,
+        'total' => round($subtotal + $tax, 2)
+    ];
 }
 
 // Get system settings

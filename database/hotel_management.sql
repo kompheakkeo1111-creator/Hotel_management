@@ -191,13 +191,15 @@ CREATE TABLE `notifications` (
 
 -- ---------------------------------------------------------
 -- System settings (key/value store)
+-- NOTE: live DB uses MyISAM; UNIQUE KEY setting_key is present
 -- ---------------------------------------------------------
 CREATE TABLE `system_settings` (
   `id` INT(11) NOT NULL AUTO_INCREMENT,
   `setting_key` VARCHAR(50) NOT NULL,
   `setting_value` TEXT,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `setting_key` (`setting_key`)
 ) ENGINE=InnoDB;
 
 -- =========================================================

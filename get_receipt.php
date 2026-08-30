@@ -27,6 +27,7 @@ $payment = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$payment) { echo '<div class="alert alert-danger">Payment record not found</div>'; exit; }
 
 $settings = getSystemSettings();
+$tax_rate = (float)($settings['tax_rate'] ?? 0);
 
 // Extra charges attached to the check-in
 $chars = $db->prepare("SELECT * FROM extra_charges WHERE check_in_id=?");
@@ -34,6 +35,12 @@ $chars->execute([$payment['check_in_id']]);
 $extra_charges = $chars->fetchAll(PDO::FETCH_ASSOC);
 $extra_total = 0;
 foreach ($extra_charges as $c) $extra_total += (float)$c['amount'];
+
+// Nights, room charge and tax breakdown from the live stay data
+$bill = computeCheckinBill($db, $payment['check_in_id'], $tax_rate);
+$nights = $bill['nights'] ?? 0;
+$room_charge = $bill['room_charge'] ?? 0;
+$tax_amount = $bill['tax'] ?? 0;
 
 $method_badge = $payment['payment_method'] == 'Cash' ? 'success' : ($payment['payment_method'] == 'Credit/Debit Card' ? 'primary' : 'warning');
 ?>
@@ -77,13 +84,16 @@ $method_badge = $payment['payment_method'] == 'Cash' ? 'success' : ($payment['pa
         <table class="table table-bordered">
             <thead class="table-light"><tr><th>Description</th><th class="text-end">Amount</th></tr></thead>
             <tbody>
-                <tr><td>Room Charges (<?php echo htmlspecialchars($payment['room_number']); ?>)</td><td class="text-end"><?php echo formatCurrency($payment['amount'] - $extra_total); ?></td></tr>
+                <tr><td>Room Charges — <?php echo htmlspecialchars($payment['room_number']); ?> (<?php echo $nights; ?> night<?php echo $nights == 1 ? '' : 's'; ?> &times; <?php echo formatCurrency($bill['rate'] ?? 0); ?>)</td><td class="text-end"><?php echo formatCurrency($room_charge); ?></td></tr>
                 <?php foreach ($extra_charges as $charge): ?>
                     <tr>
                         <td><?php echo htmlspecialchars($charge['charge_type'] . ($charge['description'] ? ': ' . $charge['description'] : '')); ?></td>
                         <td class="text-end"><?php echo formatCurrency($charge['amount']); ?></td>
                     </tr>
                 <?php endforeach; ?>
+                <?php if ($tax_amount > 0): ?>
+                    <tr><td>Tax (<?php echo $tax_rate; ?>%)</td><td class="text-end"><?php echo formatCurrency($tax_amount); ?></td></tr>
+                <?php endif; ?>
             </tbody>
             <tfoot>
                 <tr class="table-success"><th class="text-end">TOTAL</th><th class="text-end"><?php echo formatCurrency($payment['amount']); ?></th></tr>

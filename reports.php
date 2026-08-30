@@ -4,24 +4,58 @@ requireLogin();
 
 $db = getDB();
 
+$from = $_GET['from'] ?? date('Y-m-01');
+$to   = $_GET['to'] ?? date('Y-m-d');
+if (!strtotime($from)) $from = date('Y-m-01');
+if (!strtotime($to)) $to = date('Y-m-d');
+if (strtotime($to) < strtotime($from)) { $tmp = $from; $from = $to; $to = $tmp; }
+$rangeParams = [$from, $to];
+
 $totalRooms = (int)$db->query("SELECT COUNT(*) FROM rooms")->fetchColumn();
 $occupiedRooms = (int)$db->query("SELECT COUNT(*) FROM rooms WHERE status='Occupied'")->fetchColumn();
 $occupancyRate = $totalRooms > 0 ? round(($occupiedRooms / $totalRooms) * 100, 1) : 0;
 
-$monthlyRevenue = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE MONTH(payment_date)=MONTH(CURDATE()) AND YEAR(payment_date)=YEAR(CURDATE())")->fetchColumn();
-$totalRevenue = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM payments")->fetchColumn();
+$revStmt = $db->prepare("SELECT COALESCE(SUM(amount),0) FROM payments WHERE DATE(payment_date) BETWEEN ? AND ?");
+$revStmt->execute($rangeParams);
+$periodRevenue = (float)$revStmt->fetchColumn();
 
-$yearlyRevenue = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE YEAR(payment_date)=YEAR(CURDATE())")->fetchColumn();
+$totalRevenue = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM payments")->fetchColumn();
 
 // Current guests
 $current_guests = (int)$db->query("SELECT COUNT(*) FROM check_ins WHERE status='Active'")->fetchColumn();
+
+// Export CSV of the selected period before rendering
+if (($_GET['export'] ?? '') === 'csv') {
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="hotel_report_' . $from . '_to_' . $to . '.csv"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Metric', 'Value']);
+    fputcsv($out, ['Period From', $from]);
+    fputcsv($out, ['Period To', $to]);
+    fputcsv($out, ['Total Rooms', $totalRooms]);
+    fputcsv($out, ['Occupied Rooms', $occupiedRooms]);
+    fputcsv($out, ['Occupancy Rate (%)', $occupancyRate]);
+    fputcsv($out, ['Current Guests In-house', $current_guests]);
+    fputcsv($out, ['Revenue in Period', number_format($periodRevenue, 2)]);
+    fputcsv($out, ['Total Revenue (all time)', number_format($totalRevenue, 2)]);
+    $dayStmt = $db->prepare("SELECT DATE(payment_date) d, COALESCE(SUM(amount),0) amt FROM payments WHERE DATE(payment_date) BETWEEN ? AND ? GROUP BY DATE(payment_date) ORDER BY d");
+    $dayStmt->execute($rangeParams);
+    fputcsv($out, ['']);
+    fputcsv($out, ['Daily Revenue']);
+    fputcsv($out, ['Date', 'Amount']);
+    foreach ($dayStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        fputcsv($out, [$row['d'], number_format($row['amt'], 2)]);
+    }
+    fclose($out);
+    exit;
+}
 
 // ADR / RevPAR
 $roomNights = (int)$db->query("SELECT COALESCE(SUM(DATEDIFF(r.check_out_date, r.check_in_date)),0)
                                FROM reservations r WHERE r.status IN ('Completed','Confirmed')
                                AND MONTH(r.check_in_date)=MONTH(CURDATE())")->fetchColumn();
-$adr = ($roomNights > 0) ? round($monthlyRevenue / $roomNights, 2) : 0;
-$revpar = ($totalRooms > 0) ? round($monthlyRevenue / ($totalRooms * 30), 2) : 0;
+$adr = ($roomNights > 0) ? round($periodRevenue / max($roomNights, 1), 2) : 0;
+$revpar = ($totalRooms > 0) ? round($periodRevenue / max($totalRooms * 30, 1), 2) : 0;
 
 // Monthly revenue trend (last 6 months)
 $months = [];
@@ -34,12 +68,14 @@ for ($i = 5; $i >= 0; $i--) {
     $mlabels[] = date('M', strtotime($m . '-01'));
 }
 
-$revenueByType = $db->query("SELECT rt.type_name, COALESCE(SUM(p.amount),0) revenue
+$revTypeStmt = $db->prepare("SELECT rt.type_name, COALESCE(SUM(p.amount),0) revenue
                              FROM room_types rt
                              LEFT JOIN rooms r ON r.room_type_id=rt.id
                              LEFT JOIN reservations res ON res.room_id=r.id
-                             LEFT JOIN payments p ON p.reservation_id=res.id
-                             GROUP BY rt.id, rt.type_name")->fetchAll(PDO::FETCH_ASSOC);
+                             LEFT JOIN payments p ON p.reservation_id=res.id AND DATE(p.payment_date) BETWEEN ? AND ?
+                             GROUP BY rt.id, rt.type_name");
+$revTypeStmt->execute($rangeParams);
+$revenueByType = $revTypeStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $topGuests = $db->query("SELECT g.full_name, COUNT(res.id) stays, COALESCE(SUM(res.total_amount),0) spend
                          FROM guests g
@@ -63,8 +99,20 @@ require 'includes/header.php';
     <div class="col-md-3 col-6"><div class="stat-card"><div class="icon icon-success"><i class="bi bi-graph-up-arrow"></i></div><div><div class="number"><?php echo $occupancyRate; ?>%</div><div class="label">Occupancy Rate</div><small class="text-muted"><?php echo $occupiedRooms; ?>/<?php echo $totalRooms; ?> rooms</small></div></div></div>
     <div class="col-md-3 col-6"><div class="stat-card"><div class="icon icon-info"><i class="bi bi-people"></i></div><div><div class="number"><?php echo $current_guests; ?></div><div class="label">Guests In-house</div></div></div></div>
     <div class="col-md-3 col-6"><div class="stat-card"><div class="icon icon-primary"><i class="bi bi-speedometer"></i></div><div><div class="number"><?php echo formatCurrency($adr); ?></div><div class="label">ADR (this month)</div><small class="text-muted">RevPAR: <?php echo formatCurrency($revpar); ?></small></div></div></div>
-    <div class="col-md-3 col-6"><div class="stat-card"><div class="icon icon-warning"><i class="bi bi-cash-coin"></i></div><div><div class="number"><?php echo formatCurrency($monthlyRevenue); ?></div><div class="label">Revenue This Month</div><small class="text-muted">Year: <?php echo formatCurrency($yearlyRevenue); ?></small></div></div></div>
+    <div class="col-md-3 col-6"><div class="stat-card"><div class="icon icon-warning"><i class="bi bi-cash-coin"></i></div><div><div class="number"><?php echo formatCurrency($periodRevenue); ?></div><div class="label">Revenue (Selected Period)</div><small class="text-muted">All time: <?php echo formatCurrency($totalRevenue); ?></small></div></div></div>
 </div>
+
+<form method="GET" class="filter-form mb-4 p-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-md-3"><label class="form-label mb-0">From</label><input type="date" name="from" class="form-control" value="<?php echo htmlspecialchars($from); ?>"></div>
+        <div class="col-md-3"><label class="form-label mb-0">To</label><input type="date" name="to" class="form-control" value="<?php echo htmlspecialchars($to); ?>"></div>
+        <div class="col-md-6 d-flex gap-2 align-items-end">
+            <button class="btn btn-primary"><i class="bi bi-filter"></i> Apply</button>
+            <a href="reports.php" class="btn btn-secondary">Reset</a>
+            <a href="reports.php?from=<?php echo urlencode($from); ?>&to=<?php echo urlencode($to); ?>&export=csv" class="btn btn-success"><i class="bi bi-download"></i> Export CSV</a>
+        </div>
+    </div>
+</form>
 
 <div class="row mt-1">
     <div class="col-lg-8"><div class="card"><div class="card-header">Monthly Revenue (Last 6 Months)</div><div class="card-body"><div class="chart-container"><canvas id="revChart"></canvas></div></div></div></div>

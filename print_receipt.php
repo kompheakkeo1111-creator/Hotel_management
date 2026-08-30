@@ -25,11 +25,17 @@ $payment = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$payment) { die('Payment record not found'); }
 
 $settings = getSystemSettings();
+$tax_rate = (float)($settings['tax_rate'] ?? 0);
 $chars = $db->prepare("SELECT * FROM extra_charges WHERE check_in_id=?");
 $chars->execute([$payment['check_in_id']]);
 $extra_charges = $chars->fetchAll(PDO::FETCH_ASSOC);
 $extra_total = 0;
 foreach ($extra_charges as $c) $extra_total += (float)$c['amount'];
+
+$bill = computeCheckinBill($db, $payment['check_in_id'], $tax_rate);
+$nights = $bill['nights'] ?? 0;
+$room_charge = $bill['room_charge'] ?? 0;
+$tax_amount = $bill['tax'] ?? 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -68,10 +74,13 @@ body{background:#f5f7fb} .receipt{max-width:820px;margin:30px auto;background:#f
     <table class="table mt-4">
         <thead><tr><th>Description</th><th class="text-end">Amount</th></tr></thead>
         <tbody>
-            <tr><td>Room Charges</td><td class="text-end"><?php echo formatCurrency($payment['amount'] - $extra_total); ?></td></tr>
+            <tr><td>Room Charges — <?php echo htmlspecialchars($payment['room_number']); ?> (<?php echo $nights; ?> night<?php echo $nights == 1 ? '' : 's'; ?> &times; <?php echo formatCurrency($bill['rate'] ?? 0); ?>)</td><td class="text-end"><?php echo formatCurrency($room_charge); ?></td></tr>
             <?php foreach ($extra_charges as $charge): ?>
                 <tr><td><?php echo htmlspecialchars($charge['charge_type'] . ($charge['description'] ? ': ' . $charge['description'] : '')); ?></td><td class="text-end"><?php echo formatCurrency($charge['amount']); ?></td></tr>
             <?php endforeach; ?>
+            <?php if ($tax_amount > 0): ?>
+                <tr><td>Tax (<?php echo $tax_rate; ?>%)</td><td class="text-end"><?php echo formatCurrency($tax_amount); ?></td></tr>
+            <?php endif; ?>
         </tbody>
     </table>
     <div class="total-box"><span>TOTAL</span><span><?php echo formatCurrency($payment['amount']); ?></span></div>

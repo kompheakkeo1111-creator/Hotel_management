@@ -27,26 +27,26 @@ function navItem($key, $href, $icon, $label) {
 <body>
 <div class="container-fluid"><div class="row">
 <div class="col-md-2 sidebar">
-    <a class="brand" href="dashboard.php">🏨 HMS</a>
+    <a class="brand" href="index.php?r=dashboard/index">🏨 HMS</a>
     <div class="user-box">
         <small>Welcome, <?php echo htmlspecialchars($_SESSION['user_name'] ?? ''); ?></small><br>
         <small class="text-muted"><?php echo htmlspecialchars($_SESSION['user_role'] ?? ''); ?></small>
     </div>
     <nav class="nav flex-column">
-        <?php echo navItem('dashboard', 'dashboard.php', 'bi-speedometer2', 'Dashboard'); ?>
-        <?php echo navItem('users', 'users.php', 'bi-people', 'Users'); ?>
-        <?php echo navItem('room_types', 'room_types.php', 'bi-grid', 'Room Types'); ?>
-        <?php echo navItem('rooms', 'rooms.php', 'bi-door-open', 'Rooms'); ?>
-        <?php echo navItem('guests', 'guests.php', 'bi-person', 'Guests'); ?>
-        <?php echo navItem('reservations', 'reservations.php', 'bi-calendar-check', 'Reservations'); ?>
-        <?php echo navItem('checkin', 'checkin.php', 'bi-box-arrow-in-right', 'Check-in'); ?>
-        <?php echo navItem('checkout', 'checkout.php', 'bi-box-arrow-right', 'Check-out'); ?>
-        <?php echo navItem('billing', 'billing.php', 'bi-receipt', 'Billing'); ?>
-        <?php echo navItem('notifications', 'notifications.php', 'bi-bell', 'Notifications'); ?>
-        <?php echo navItem('housekeeping', 'housekeeping.php', 'bi-broom', 'Housekeeping'); ?>
-        <?php echo navItem('maintenance', 'maintenance.php', 'bi-wrench', 'Maintenance'); ?>
-        <?php echo navItem('reports', 'reports.php', 'bi-file-text', 'Reports'); ?>
-        <?php echo navItem('settings', 'settings.php', 'bi-gear', 'Settings'); ?>
+        <?php echo navItem('dashboard', 'index.php?r=dashboard/index', 'bi-speedometer2', 'Dashboard'); ?>
+        <?php echo navItem('users', 'index.php?r=users/index', 'bi-people', 'Users'); ?>
+        <?php echo navItem('room_types', 'index.php?r=room_types/index', 'bi-grid', 'Room Types'); ?>
+        <?php echo navItem('rooms', 'index.php?r=rooms/index', 'bi-door-open', 'Rooms'); ?>
+        <?php echo navItem('guests', 'index.php?r=guests/index', 'bi-person', 'Guests'); ?>
+        <?php echo navItem('reservations', 'index.php?r=reservations/index', 'bi-calendar-check', 'Reservations'); ?>
+        <?php echo navItem('checkin', 'index.php?r=checkin/index', 'bi-box-arrow-in-right', 'Check-in'); ?>
+        <?php echo navItem('checkout', 'index.php?r=checkout/index', 'bi-box-arrow-right', 'Check-out'); ?>
+        <?php echo navItem('billing', 'index.php?r=billing/index', 'bi-receipt', 'Billing'); ?>
+        <?php echo navItem('notifications', 'index.php?r=notifications/index', 'bi-bell', 'Notifications'); ?>
+        <?php echo navItem('housekeeping', 'index.php?r=housekeeping/index', 'bi-broom', 'Housekeeping'); ?>
+        <?php echo navItem('maintenance', 'index.php?r=maintenance/index', 'bi-wrench', 'Maintenance'); ?>
+        <?php echo navItem('reports', 'index.php?r=reports/index', 'bi-file-text', 'Reports'); ?>
+        <?php echo navItem('settings', 'index.php?r=settings/index', 'bi-gear', 'Settings'); ?>
         <?php echo navItem('', 'logout.php', 'bi-box-arrow-right', 'Logout'); ?>
     </nav>
 </div>

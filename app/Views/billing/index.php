@@ -1,93 +1,8 @@
-<?php
-require_once 'config.php';
-requireLogin();
-
-$db = getDB();
-$settings = getSystemSettings();
-$methods = ['Cash', 'Credit/Debit Card', 'QR Payment', 'Bank Transfer'];
-
-$search = trim($_GET['search'] ?? '');
-$method = trim($_GET['payment_method'] ?? '');
-$start_date = $_GET['start_date'] ?? '';
-$end_date = $_GET['end_date'] ?? '';
-$export = $_GET['export'] ?? '';
-$page = max(1, (int)($_GET['page'] ?? 1));
-$perPage = 15;
-
-// Base query
-$base = "FROM payments p
-         JOIN check_ins ci ON p.check_in_id = ci.id
-         JOIN guests g ON ci.guest_id = g.id
-         JOIN rooms rm ON ci.room_id = rm.id
-         LEFT JOIN reservations r ON p.reservation_id = r.id
-         WHERE 1=1";
-$params = [];
-
-if ($search !== '') {
-    $base .= " AND (g.full_name LIKE ? OR rm.room_number LIKE ? OR p.invoice_number LIKE ?)";
-    $params[] = "%$search%"; $params[] = "%$search%"; $params[] = "%$search%";
-}
-if ($method !== '') { $base .= " AND p.payment_method = ?"; $params[] = $method; }
-if ($start_date !== '') { $base .= " AND DATE(p.payment_date) >= ?"; $params[] = $start_date; }
-if ($end_date !== '') { $base .= " AND DATE(p.payment_date) <= ?"; $params[] = $end_date; }
-
-// Export before pagination
-if ($export === 'csv') {
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="billing_report_' . date('Y-m-d') . '.csv"');
-    $output = fopen('php://output', 'w');
-    fputcsv($output, ['Invoice #', 'Guest', 'Room', 'Reservation', 'Amount', 'Method', 'Transaction ID', 'Date']);
-    $stmt = $db->prepare("SELECT p.*, g.full_name, rm.room_number, r.reservation_number " . $base . " ORDER BY p.payment_date DESC");
-    $stmt->execute($params);
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        fputcsv($output, [
-            $row['invoice_number'],
-            $row['full_name'],
-            $row['room_number'],
-            $row['reservation_number'] ?? 'N/A',
-            number_format($row['amount'], 2),
-            $row['payment_method'],
-            $row['transaction_id'] ?? '',
-            $row['payment_date']
-        ]);
-    }
-    fclose($output);
-    exit;
-}
-
-// Total count for pagination
-$countStmt = $db->prepare("SELECT COUNT(*) " . $base);
-$countStmt->execute($params);
-$total = (int)$countStmt->fetchColumn();
-$pages = max(1, (int)ceil($total / $perPage));
-if ($page > $pages) $page = $pages;
-$offset = ($page - 1) * $perPage;
-
-$query = "SELECT p.*, g.full_name, rm.room_number, r.reservation_number, ci.check_in_time " . $base . " ORDER BY p.payment_date DESC LIMIT $perPage OFFSET $offset";
-$stmt = $db->prepare($query);
-$stmt->execute($params);
-$payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Summary by method (respects the active filters)
-$summary = [];
-foreach ($methods as $m) $summary[$m] = ['count' => 0, 'amount' => 0];
-$sumStmt = $db->prepare("SELECT payment_method, COUNT(*) cnt, COALESCE(SUM(amount),0) amt " . $base . " GROUP BY payment_method");
-$sumStmt->execute($params);
-foreach ($sumStmt->fetchAll(PDO::FETCH_ASSOC) as $s) {
-    $summary[$s['payment_method']] = ['count' => $s['cnt'], 'amount' => $s['amt']];
-}
-$grand_total = array_sum(array_column($summary, 'amount'));
-
-$active = 'billing';
-$pageTitle = 'Billing';
-require 'includes/header.php';
-?>
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <div><h2 class="page-title mb-1">Billing & Invoices</h2><p class="page-subtitle mb-0"><?php echo $grand_total ? formatCurrency($grand_total) : '0.00'; ?> total collected</p></div>
-    <a href="?export=csv&search=<?php echo urlencode($search); ?>&payment_method=<?php echo urlencode($method); ?>&start_date=<?php echo urlencode($start_date); ?>&end_date=<?php echo urlencode($end_date); ?>" class="btn btn-success"><i class="bi bi-download"></i> Export CSV</a>
+    <div><h2 class="page-title mb-1">Billing & Invoices</h2><p class="page-subtitle mb-0"><?php echo $grandTotal ? formatCurrency($grandTotal) : '0.00'; ?> total collected</p></div>
+    <a href="index.php?r=billing/index&export=csv&search=<?php echo urlencode($search); ?>&payment_method=<?php echo urlencode($method); ?>&start_date=<?php echo urlencode($startDate); ?>&end_date=<?php echo urlencode($endDate); ?>" class="btn btn-success"><i class="bi bi-download"></i> Export CSV</a>
 </div>
 
-<!-- Summary cards -->
 <div class="row">
     <div class="col-md-3 col-6"><div class="stat-card"><div class="icon icon-success"><i class="bi bi-cash"></i></div><div><div class="number"><?php echo isset($summary['Cash']) ? formatCurrency($summary['Cash']['amount']) : '0.00'; ?></div><div class="label">Cash (<?php echo $summary['Cash']['count'] ?? 0; ?>)</div></div></div></div>
     <div class="col-md-3 col-6"><div class="stat-card"><div class="icon icon-primary"><i class="bi bi-credit-card"></i></div><div><div class="number"><?php echo isset($summary['Credit/Debit Card']) ? formatCurrency($summary['Credit/Debit Card']['amount']) : '0.00'; ?></div><div class="label">Card (<?php echo $summary['Credit/Debit Card']['count'] ?? 0; ?>)</div></div></div></div>
@@ -102,9 +17,9 @@ require 'includes/header.php';
             <option value="">All Methods</option>
             <?php foreach ($methods as $m): ?><option value="<?php echo $m; ?>" <?php echo $method === $m ? 'selected' : ''; ?>><?php echo $m; ?></option><?php endforeach; ?>
         </select></div>
-        <div class="col-md-2"><input type="date" name="start_date" class="form-control" value="<?php echo htmlspecialchars($start_date); ?>"></div>
-        <div class="col-md-2"><input type="date" name="end_date" class="form-control" value="<?php echo htmlspecialchars($end_date); ?>"></div>
-        <div class="col-md-2"><button class="btn btn-primary"><i class="bi bi-filter"></i> Filter</button> <a href="billing.php" class="btn btn-secondary">Reset</a></div>
+        <div class="col-md-2"><input type="date" name="start_date" class="form-control" value="<?php echo htmlspecialchars($startDate); ?>"></div>
+        <div class="col-md-2"><input type="date" name="end_date" class="form-control" value="<?php echo htmlspecialchars($endDate); ?>"></div>
+        <div class="col-md-2"><button class="btn btn-primary"><i class="bi bi-filter"></i> Filter</button> <a href="index.php?r=billing/index" class="btn btn-secondary">Reset</a></div>
     </div>
 </form>
 
@@ -139,9 +54,9 @@ require 'includes/header.php';
 <div class="card-body border-top">
     <nav><ul class="pagination justify-content-center mb-0">
         <?php
-        $qs = http_build_query(array_filter(['search'=>$search,'payment_method'=>$method,'start_date'=>$start_date,'end_date'=>$end_date]));
+        $qs = http_build_query(array_filter(['search'=>$search,'payment_method'=>$method,'start_date'=>$startDate,'end_date'=>$endDate, 'r'=>'billing/index']));
         for ($i = 1; $i <= $pages; $i++):
-            $link = 'billing.php?' . ($qs ? $qs . '&' : '') . 'page=' . $i;
+            $link = 'index.php?' . ($qs ? $qs . '&' : '') . 'page=' . $i;
         ?>
         <li class="page-item <?php echo $i === $page ? 'active' : ''; ?>"><a class="page-link" href="<?php echo $link; ?>"><?php echo $i; ?></a></li>
         <?php endfor; ?>
@@ -150,7 +65,6 @@ require 'includes/header.php';
 <?php endif; ?>
 </div>
 
-<!-- Receipt View Modal -->
 <div class="modal fade" id="receiptModal" tabindex="-1">
     <div class="modal-dialog modal-lg"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title">Payment Receipt</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -169,4 +83,3 @@ function viewReceipt(id) {
         .catch(() => { document.getElementById('receiptContent').innerHTML = '<div class="alert alert-danger">Error loading receipt.</div>'; });
 }
 </script>
-<?php require 'includes/footer.php'; ?>

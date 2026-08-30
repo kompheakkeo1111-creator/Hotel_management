@@ -1,143 +1,3 @@
-<?php
-require_once 'config.php';
-requireLogin();
-
-$db = getDB();
-$settings = getSystemSettings();
-$tax_rate = (float)($settings['tax_rate'] ?? 0);
-
-$message = '';
-$error = '';
-$validStatus = ['Pending', 'Confirmed', 'Cancelled', 'Completed'];
-
-function roomIsAvailable($db, $room_id, $check_in, $check_out, $exclude_res_id = 0) {
-    $stmt = $db->prepare("SELECT COUNT(*) FROM reservations
-        WHERE room_id=? AND status NOT IN ('Cancelled')
-        AND id <> ? AND check_in_date < ? AND check_out_date > ?");
-    $stmt->execute([$room_id, $exclude_res_id, $check_out, $check_in]);
-    return (int)$stmt->fetchColumn() === 0;
-}
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $action = $_POST['action'] ?? '';
-    try {
-        // ---------- CREATE ----------
-        if ($action === 'add') {
-            $guest_id = (int)($_POST['guest_id'] ?? 0);
-            $room_id = (int)($_POST['room_id'] ?? 0);
-            $check_in = $_POST['check_in_date'] ?? '';
-            $check_out = $_POST['check_out_date'] ?? '';
-            $num_guests = max(1, (int)($_POST['number_of_guests'] ?? 1));
-            $status = in_array($_POST['status'] ?? '', $validStatus, true) ? $_POST['status'] : 'Pending';
-            $requests = trim($_POST['special_requests'] ?? '');
-
-            if (!$guest_id || !$room_id || !$check_in || !$check_out) throw new Exception('Guest, room, and dates are required.');
-            if (strtotime($check_out) <= strtotime($check_in)) throw new Exception('Check-out must be after check-in.');
-            if (!roomIsAvailable($db, $room_id, $check_in, $check_out)) throw new Exception('This room is already booked for the selected dates.');
-
-            $rate = $db->prepare("SELECT price_per_night FROM rooms WHERE id=?");
-            $rate->execute([$room_id]);
-            $nightly = (float)$rate->fetchColumn();
-            $nights = max(1, (int)((strtotime($check_out) - strtotime($check_in)) / 86400));
-            $subtotal = $nights * $nightly;
-            $total_amount = round($subtotal + ($subtotal * $tax_rate / 100), 2);
-
-            $reservation_number = generateReservationNumber();
-            $sql = "INSERT INTO reservations (reservation_number, guest_id, room_id, check_in_date, check_out_date, number_of_guests, status, special_requests, total_amount, created_by)
-                    VALUES (?,?,?,?,?,?,?,?,?,?)";
-            $stmt = $db->prepare($sql);
-            $stmt->execute([$reservation_number, $guest_id, $room_id, $check_in, $check_out, $num_guests, $status, $requests, $total_amount, $_SESSION['user_id']]);
-            $message = 'Reservation ' . $reservation_number . ' created.';
-        }
-
-        // ---------- EDIT ----------
-        elseif ($action === 'edit') {
-            $id = (int)($_POST['id'] ?? 0);
-            $check_in = $_POST['check_in_date'] ?? '';
-            $check_out = $_POST['check_out_date'] ?? '';
-            $num_guests = max(1, (int)($_POST['number_of_guests'] ?? 1));
-            $status = in_array($_POST['status'] ?? '', $validStatus, true) ? $_POST['status'] : 'Pending';
-            $requests = trim($_POST['special_requests'] ?? '');
-
-            if (!$id || !$check_in || !$check_out) throw new Exception('Invalid data.');
-            if (strtotime($check_out) <= strtotime($check_in)) throw new Exception('Check-out must be after check-in.');
-
-            $stmt = $db->prepare("UPDATE reservations SET check_in_date=?, check_out_date=?, number_of_guests=?, status=?, special_requests=? WHERE id=?");
-            $stmt->execute([$check_in, $check_out, $num_guests, $status, $requests, $id]);
-
-            $rate = $db->prepare("SELECT r.price_per_night FROM rooms r JOIN reservations res ON res.room_id=r.id WHERE res.id=?");
-            $rate->execute([$id]);
-            if ($nightly = $rate->fetchColumn()) {
-                $nights = max(1, (int)((strtotime($check_out) - strtotime($check_in)) / 86400));
-                $subtotal = $nights * (float)$nightly;
-                $total_amount = round($subtotal + ($subtotal * $tax_rate / 100), 2);
-                $db->prepare("UPDATE reservations SET total_amount=? WHERE id=?")->execute([$total_amount, $id]);
-            }
-            $message = 'Reservation updated.';
-        }
-
-        // ---------- CANCEL (frees room) ----------
-        elseif ($action === 'cancel') {
-            $id = (int)($_POST['id'] ?? 0);
-            $db->prepare("UPDATE reservations SET status='Cancelled' WHERE id=?")->execute([$id]);
-            $free = $db->prepare("UPDATE rooms r JOIN reservations res ON res.room_id=r.id
-                                  SET r.status='Available'
-                                  WHERE res.id=? AND r.status='Reserved'");
-            $free->execute([$id]);
-            $message = 'Reservation cancelled and room released.';
-        }
-
-        // ---------- DELETE (only if not checked in) ----------
-        elseif ($action === 'delete') {
-            $id = (int)($_POST['id'] ?? 0);
-            $ci = $db->prepare("SELECT COUNT(*) FROM check_ins WHERE reservation_id=? AND status='Active'");
-            $ci->execute([$id]);
-            if ((int)$ci->fetchColumn() > 0) throw new Exception('Cannot delete an active stay.');
-            $room_id = $db->prepare("SELECT room_id FROM reservations WHERE id=?");
-            $room_id->execute([$id]);
-            $rid = $room_id->fetchColumn();
-            $db->prepare("DELETE FROM reservations WHERE id=?")->execute([$id]);
-            if ($rid) {
-                $still = $db->prepare("SELECT COUNT(*) FROM reservations WHERE room_id=? AND status NOT IN ('Cancelled')");
-                $still->execute([$rid]);
-                if ((int)$still->fetchColumn() === 0) {
-                    $db->prepare("UPDATE rooms SET status='Available' WHERE id=? AND status='Reserved'")->execute([$rid]);
-                }
-            }
-            $message = 'Reservation deleted.';
-        }
-    } catch (Exception $e) {
-        $error = $e->getMessage();
-    }
-}
-
-// Filters
-$f_status = $_GET['status'] ?? '';
-$q = trim($_GET['q'] ?? '');
-$where = [];
-$params = [];
-if ($f_status !== '') { $where[] = 'r.status=?'; $params[] = $f_status; }
-if ($q !== '') { $where[] = '(r.reservation_number LIKE ? OR g.full_name LIKE ?)'; $params[] = "%$q%"; $params[] = "%$q%"; }
-
-$sql = "SELECT r.*, g.full_name guest_name, rm.room_number, rm.price_per_night, rt.type_name,
-        DATEDIFF(r.check_out_date, r.check_in_date) nights
-        FROM reservations r
-        JOIN guests g ON r.guest_id=g.id
-        LEFT JOIN rooms rm ON r.room_id=rm.id
-        LEFT JOIN room_types rt ON rm.room_type_id=rt.id";
-if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
-$sql .= ' ORDER BY r.created_at DESC';
-$rs = $db->prepare($sql);
-$rs->execute($params);
-$reservations = $rs->fetchAll(PDO::FETCH_ASSOC);
-
-$guests = $db->query("SELECT id, full_name FROM guests ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
-$rooms = $db->query("SELECT id, room_number, price_per_night FROM rooms ORDER BY room_number")->fetchAll(PDO::FETCH_ASSOC);
-
-$active = 'reservations';
-$pageTitle = 'Reservations';
-require 'includes/header.php';
-?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 class="page-title mb-1">Reservations</h2>
@@ -146,18 +6,18 @@ require 'includes/header.php';
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addReservationModal"><i class="bi bi-plus-circle"></i> Create Reservation</button>
 </div>
 
-<?php if ($message): ?><div class="alert alert-success"><?php echo $message; ?></div><?php endif; ?>
-<?php if ($error): ?><div class="alert alert-danger"><?php echo $error; ?></div><?php endif; ?>
+<?php if (!empty($message)): ?><div class="alert alert-success"><?php echo htmlspecialchars($message); ?></div><?php endif; ?>
+<?php if (!empty($error)): ?><div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
 
 <form method="GET" class="filter-form mb-4 p-3">
     <div class="row g-2 align-items-center">
         <div class="col-md-4"><input type="text" name="q" class="form-control" placeholder="Search name or reservation #" value="<?php echo htmlspecialchars($q); ?>"></div>
         <div class="col-md-3"><select name="status" class="form-select">
             <option value="">All Statuses</option>
-            <?php foreach ($validStatus as $s): ?><option value="<?php echo $s; ?>" <?php echo $f_status === $s ? 'selected' : ''; ?>><?php echo $s; ?></option><?php endforeach; ?>
+            <?php foreach ($validStatus as $s): ?><option value="<?php echo $s; ?>" <?php echo $fStatus === $s ? 'selected' : ''; ?>><?php echo $s; ?></option><?php endforeach; ?>
         </select></div>
         <div class="col-md-5"><button class="btn btn-primary"><i class="bi bi-filter"></i> Filter</button>
-        <a href="reservations.php" class="btn btn-secondary">Reset</a></div>
+        <a href="index.php?r=reservations/index" class="btn btn-secondary">Reset</a></div>
     </div>
 </form>
 
@@ -199,7 +59,6 @@ require 'includes/header.php';
     </table>
 </div></div></div>
 
-<!-- Add Reservation Modal -->
 <div class="modal fade" id="addReservationModal" tabindex="-1">
     <div class="modal-dialog modal-lg"><div class="modal-content">
         <form method="POST">
@@ -227,8 +86,8 @@ require 'includes/header.php';
                     </select></div>
                 </div>
                 <div class="mb-3"><label class="form-label">Estimated Total</label>
-                    <div class="input-group"><span class="input-group-text"><?php echo $settings['currency'] ?? 'USD'; ?></span><input type="text" class="form-control" id="add-total" readonly value="0.00"></div>
-                    <small class="text-muted">Auto-calculated: nights × room rate (+<?php echo $tax_rate; ?>% tax)</small>
+                    <div class="input-group"><span class="input-group-text"><?php echo htmlspecialchars($currency); ?></span><input type="text" class="form-control" id="add-total" readonly value="0.00"></div>
+                    <small class="text-muted">Auto-calculated: nights × room rate (+<?php echo $taxRate; ?>% tax)</small>
                 </div>
                 <div class="mb-3"><label class="form-label">Special Requests</label><textarea name="special_requests" class="form-control" rows="2"></textarea></div>
             </div>
@@ -237,7 +96,6 @@ require 'includes/header.php';
     </div></div>
 </div>
 
-<!-- Edit Reservation Modal -->
 <div class="modal fade" id="editReservationModal" tabindex="-1">
     <div class="modal-dialog modal-lg"><div class="modal-content">
         <form method="POST">
@@ -263,7 +121,6 @@ require 'includes/header.php';
     </div></div>
 </div>
 
-<!-- View Reservation Modal -->
 <div class="modal fade" id="viewReservationModal" tabindex="-1">
     <div class="modal-dialog"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title">Reservation Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -274,10 +131,9 @@ require 'includes/header.php';
 
 <script>
 const resData = <?php echo json_encode($reservations); ?>;
-const taxRate = <?php echo $tax_rate; ?>;
-const currency = '<?php echo $settings['currency'] ?? 'USD'; ?>';
+const taxRate = <?php echo $taxRate; ?>;
+const currency = '<?php echo htmlspecialchars($currency); ?>';
 
-// Auto total in add modal
 function calcAddTotal() {
     const room = document.getElementById('add-room').selectedOptions[0];
     const price = room && room.dataset.price ? parseFloat(room.dataset.price) : 0;
@@ -334,4 +190,3 @@ function viewReservation(id) {
     new bootstrap.Modal(document.getElementById('viewReservationModal')).show();
 }
 </script>
-<?php require 'includes/footer.php'; ?>

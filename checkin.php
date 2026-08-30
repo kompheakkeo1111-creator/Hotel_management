@@ -50,6 +50,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && ($_POST['action'] ?? '') === 'walkin
         $overlap->execute([$room_id]);
         if ((int)$overlap->fetchColumn() > 0) throw new Exception('This room is currently occupied.');
 
+        $booked = $db->prepare("SELECT COUNT(*) FROM reservations
+                                WHERE room_id=? AND status NOT IN ('Cancelled')
+                                  AND check_in_date < ? AND check_out_date > ?");
+        $booked->execute([$room_id, $check_out, $check_in]);
+        if ((int)$booked->fetchColumn() > 0) throw new Exception('This room is already reserved for the selected dates.');
+
         $db->beginTransaction();
         $price = $db->prepare("SELECT price_per_night FROM rooms WHERE id=?");
         $price->execute([$room_id]);
