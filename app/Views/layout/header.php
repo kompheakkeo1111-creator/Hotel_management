@@ -1,9 +1,9 @@
 <?php
 // =========================================================
-// Shared page header + sidebar
-// Expected variables (set before include):
+// MVC layout header + sidebar (native replacement for includes/header.php)
+// Expected variables (set before include by Controller::view()):
 //   $active   - key identifying the active nav item (e.g. 'dashboard')
-//   $pageTitle- <title> suffix (optional)
+//   $pageTitle - <title> suffix (optional)
 // =========================================================
 if (empty($active)) $active = '';
 $pageTitle = isset($pageTitle) ? $pageTitle : APP_NAME;

@@ -1,6 +1,6 @@
 <?php
 // =========================================================
-// Shared page footer
+// MVC layout footer (native replacement for includes/footer.php)
 // =========================================================
 ?>
 </div><!-- /.main -->
