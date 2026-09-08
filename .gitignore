@@ -1,0 +1,21 @@
+# Database backups
+backups/
+
+# Cookie files
+cookies/
+
+# Tunnel files
+tunnel/cloudflared.exe
+tunnel/*.log
+tunnel/start.bat
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# PHP
+*.log
